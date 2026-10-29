@@ -444,7 +444,7 @@ check_image_size() {
 	local _offset="${3:-0}"
 	case "$_offset" in
 		*[!0-9]*|0?*)
-			log "ERROR: image offset must be a non-negative decimal integer"
+			log "ERROR: image offset must be a non-negative decimal integer without leading zeroes"
 			return 1
 			;;
 	esac
@@ -456,7 +456,7 @@ check_image_size() {
 	part_size=$((part_size - _offset))
 
 	if [ "$img_size" -gt "$part_size" ]; then
-		log "ERROR: The $img size ($img_size bytes) is greater than the $part size ($part_size bytes)"
+		log "ERROR: The $img size ($img_size bytes) exceeds the available $part space ($part_size bytes after $_offset reserved bytes)"
 		return 1
 	fi
 
