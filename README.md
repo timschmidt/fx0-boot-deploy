@@ -21,6 +21,16 @@ by boot-deploy, some of them are used internally by postmarketOS. For an up to
 date list of variables that boot-deploy can use at runtime, see the top of the
 `boot-deploy-functions.sh` file.
 
+For on-device Android boot-image updates, `deviceinfo_flash_bootimg_offset`
+reserves a prefix in the target boot partition. Set it to the decimal byte
+offset required by the installed bootloader, for example `524288` for a
+standard lk2nd build. The default is zero. Nonzero offsets must be multiples
+of 512 bytes; the image must fit in the space remaining after the prefix.
+The prefix and bytes following the image are preserved. Verify the offset
+against the actual bootloader build before enabling updates. This setting
+applies to the on-device boot-image write; lk2nd's fastboot interface already
+applies its own offset.
+
 ### Kernel Command-line
 
 boot-deploy uses
