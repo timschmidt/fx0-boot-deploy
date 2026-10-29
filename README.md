@@ -24,7 +24,8 @@ date list of variables that boot-deploy can use at runtime, see the top of the
 For on-device Android boot-image updates, `deviceinfo_flash_bootimg_offset`
 reserves a prefix in the target boot partition. Set it to the decimal byte
 offset required by the installed bootloader, for example `524288` for a
-standard lk2nd build. The default is zero. Nonzero offsets must be multiples
+standard lk2nd build. The default is zero. Leading zeroes are not accepted.
+Nonzero offsets must be multiples
 of 512 bytes; the image must fit in the space remaining after the prefix.
 The prefix and bytes following the image are preserved. Verify the offset
 against the actual bootloader build before enabling updates. This setting
