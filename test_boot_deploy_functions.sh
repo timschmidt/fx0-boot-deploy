@@ -159,10 +159,68 @@ test_extlinux_config() {
 	return $_ret
 }
 
+test_flash_bootimg_offset() (
+	local _dir="$wdir/flash-offset"
+	mkdir -p "$_dir"
+	local _part="$_dir/partition"
+	work_dir="$_dir"
+	deviceinfo_header_version="0"
+
+	# Use regular files to exercise the real write without accessing devices.
+	findfs() { echo "$_part"; }
+	lsblk() { stat -c %s "$1"; }
+	ab_get_slot() { echo ""; }
+
+	dd if=/dev/urandom of="$_dir/prefix" bs=512K count=1 2>/dev/null
+	dd if=/dev/urandom of="$_dir/suffix" bs=512K count=1 2>/dev/null
+	dd if=/dev/urandom of="$work_dir/$bootimg_filename" bs=512K count=1 2>/dev/null
+	cat "$_dir/prefix" "$_dir/prefix" "$_dir/suffix" >"$_part"
+	deviceinfo_flash_bootimg_offset="524288"
+	vendor_flash_android_bootimg boot vendor_boot
+	dd if="$_part" bs=512K count=1 2>/dev/null | cmp - "$_dir/prefix"
+	dd if="$_part" bs=512K skip=1 count=1 2>/dev/null | cmp - "$work_dir/$bootimg_filename"
+	dd if="$_part" bs=512K skip=2 count=1 2>/dev/null | cmp - "$_dir/suffix"
+	[ "$(stat -c %s "$_part")" = 1572864 ]
+	cp "$_part" "$_dir/before"
+
+	# Every rejected offset must leave all bytes intact.
+	for _offset in 1 513 -512 0x80000 00 1.0 999999999999999999999999999; do
+		deviceinfo_flash_bootimg_offset="$_offset"
+		if (vendor_flash_android_bootimg boot vendor_boot); then
+			echo "test_flash_bootimg_offset: accepted invalid offset $_offset"
+			return 1
+		fi
+		cmp "$_part" "$_dir/before"
+	done
+
+	# The image fits the physical partition, but not the usable tail.
+	dd if=/dev/zero of="$work_dir/$bootimg_filename" bs=512K count=3 2>/dev/null
+	deviceinfo_flash_bootimg_offset="524288"
+	if (vendor_flash_android_bootimg boot vendor_boot); then
+		echo "test_flash_bootimg_offset: accepted image overflowing the tail"
+		return 1
+	fi
+	cmp "$_part" "$_dir/before"
+
+	# Exactly filling the tail is supported.
+	dd if=/dev/urandom of="$work_dir/$bootimg_filename" bs=512K count=2 2>/dev/null
+	vendor_flash_android_bootimg boot vendor_boot
+	dd if="$_part" bs=512K count=1 2>/dev/null | cmp - "$_dir/prefix"
+	dd if="$_part" bs=512K skip=1 count=2 2>/dev/null | cmp - "$work_dir/$bootimg_filename"
+	[ "$(stat -c %s "$_part")" = 1572864 ]
+
+	# An unset offset keeps the existing write-at-zero behavior.
+	deviceinfo_flash_bootimg_offset=""
+	vendor_flash_android_bootimg boot vendor_boot
+	dd if="$_part" bs=512K count=2 2>/dev/null | cmp - "$work_dir/$bootimg_filename"
+	echo "test_flash_bootimg_offset: pass"
+)
+
 test_get_size_of_files
 test_copy_files
 test_invalid_dtb
 test_extlinux_config
+test_flash_bootimg_offset
 
 rm -rf "$wdir"
 trap - INT EXIT TERM
