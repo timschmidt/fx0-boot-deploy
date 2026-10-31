@@ -39,6 +39,7 @@ deviceinfo_depthcharge_board=""
 deviceinfo_depthcharge_compression=""
 deviceinfo_dtb=""
 deviceinfo_header_version=""
+deviceinfo_flash_bootimg_offset=""
 deviceinfo_flash_offset_base=""
 deviceinfo_flash_offset_dtb=""
 deviceinfo_flash_offset_kernel=""
@@ -429,6 +430,7 @@ append_or_copy_dtb() {
 # image is smaller than the partition, else returns false/1.
 # $1: image file
 # $2: partition / block device
+# $3: optional byte offset reserved before the image
 check_image_size() {
 	local img="$1"
 	local part="$2"
@@ -438,10 +440,23 @@ check_image_size() {
 	img_size="$(du -b "$img" | cut -f1)"
 
 	local part_size
-	part_size="$(lsblk "$part" --noheadings --bytes --output size)"
+	part_size="$(lsblk "$part" --nodeps --noheadings --bytes --output size | tr -d '[:space:]')"
+	local _offset="${3:-0}"
+	case "$_offset" in
+		*[!0-9]*|0?*)
+			log "ERROR: image offset must be a non-negative decimal integer without leading zeroes"
+			return 1
+			;;
+	esac
+	# Check the length before numeric comparison to reject overflowing input.
+	if [ "${#_offset}" -gt "${#part_size}" ] || [ "$_offset" -gt "$part_size" ]; then
+		log "ERROR: image offset ($_offset bytes) exceeds the $part size ($part_size bytes)"
+		return 1
+	fi
+	part_size=$((part_size - _offset))
 
 	if [ "$img_size" -gt "$part_size" ]; then
-		log "ERROR: The $img size ($img_size bytes) is greater than the $part size ($part_size bytes)"
+		log "ERROR: The $img size ($img_size bytes) exceeds the available $part space ($part_size bytes after $_offset reserved bytes)"
 		return 1
 	fi
 
@@ -1012,16 +1027,28 @@ vendor_flash_android_bootimg() {
 	local boot_part_suffix
 	local boot_partition
 	local vendor_boot_partition
+	local _offset="${deviceinfo_flash_bootimg_offset:-0}"
 	boot_part_suffix=$(ab_get_slot) # Empty for non-A/B devices
 	boot_partition=$(findfs PARTLABEL="${partlabel}${boot_part_suffix}")
 	log "Flashing $bootimg_filename to '${partlabel}${boot_part_suffix}'"
 
-	if ! check_image_size "$work_dir/$bootimg_filename" "$boot_partition"; then
+	if ! check_image_size "$work_dir/$bootimg_filename" "$boot_partition" "$_offset"; then
 		log_boot_partition_too_small_suggestion
 		exit 1
 	fi
 
-	dd if="$work_dir/$bootimg_filename" of="$boot_partition" bs=1M
+	if [ "$((_offset % 512))" -ne 0 ]; then
+		log "ERROR: boot image offset must be a multiple of 512 bytes"
+		return 1
+	fi
+
+	if [ "$_offset" -eq 0 ]; then
+		dd if="$work_dir/$bootimg_filename" of="$boot_partition" bs=1M
+	else
+		log "Preserving $_offset bytes before the boot image"
+		dd if="$work_dir/$bootimg_filename" of="$boot_partition" bs=512 \
+			seek="$((_offset / 512))" conv=notrunc,fsync
+	fi
 
 	if { [ "$deviceinfo_header_version" = "3" ] || [ "$deviceinfo_header_version" = "4" ]; } && [ -e "$work_dir/vendor_boot.img" ]; then
 		vendor_boot_partition=$(findfs PARTLABEL="${vendor_partlabel}${boot_part_suffix}")
